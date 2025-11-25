@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Vertical Pipeline Mini App</title>
+<style>
+:root{
+  --bg:#f3f4f6;
+  --card:#fff;
+  --muted:#d0d0d0;
+  --accent:#0088cc;
+  --good:#4caf50;
+  --current-glow: rgba(0,136,204,0.18);
+  --start-color:#ff8c42;
+  --finish-color:#6a5acd;
+}
+body{margin:0;font-family:Inter, -apple-system, 'Segoe UI', Roboto, Arial;background:var(--bg);color:#111;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}
+header{padding:18px 20px;text-align:center;}
+h1{margin:0;font-size:20px;font-weight:600;}
+.pipeline-area{display:flex;justify-content:center;padding:18px;}
+.pipeline{position:relative;width:360px;padding-left:84px;}
+.line{position:absolute;left:84px;top:0;width:8px;height:100%;background:var(--muted);border-radius:8px;z-index:1;transition:background .25s;}
+.line-progress{position:absolute;left:84px;top:0;width:8px;height:0;background:var(--good);border-radius:8px;z-index:2;transition:height .28s;}
+.node{position:relative;z-index:10;display:flex;align-items:center;gap:12px;padding:12px 14px;margin:18px 0;border-radius:12px;background:var(--card);box-shadow:0 6px 18px rgba(16,24,40,0.06);cursor:grab;transition:transform .14s ease, box-shadow .14s ease, opacity .12s;user-select:none;}
+.node:active{cursor:grabbing;transform:scale(1.02);}
+.node::before{content:"";position:absolute;left:-49px;width:18px;height:18px;border-radius:50%;top:50%;transform:translateY(-50%);background:var(--muted);border:4px solid var(--bg);box-sizing:content-box;transition:background .18s, transform .18s;}
+.node.completed{background:#eaf9ea;color:#145c14;}
+.node.completed::before{background:var(--good);transform:translateY(-50%) scale(1.02);}
+.node.current{border:2px solid rgba(0,136,204,0.14);box-shadow:0 10px 30px var(--current-glow);animation: gentlePulse 1.6s infinite;}
+.node.current::before{background:#aee6ff;transform:translateY(-50%) scale(1.08);}
+@keyframes gentlePulse{0%{box-shadow:0 6px 18px rgba(0,136,204,0.14);transform:translateY(0);}50%{box-shadow:0 18px 32px rgba(0,136,204,0.06);transform:translateY(-2px);}100%{box-shadow:0 6px 18px rgba(0,136,204,0.14);transform:translateY(0);}}
+.node .title{font-weight:600;font-size:15px;}
+.node .controls{margin-left:auto;display:flex;gap:8px;align-items:center;}
+.status-select{padding:6px 8px;border-radius:8px;border:1px solid #e6e6e6;background:#fff;font-size:13px;}
+.endpoint{background:#f5f7fb;color:#333;font-weight:700;display:inline-block;padding:10px 14px;border-radius:12px;box-shadow:0 4px 10px rgba(12,18,36,0.04);}
+.endpoint.start{background:var(--start-color);color:#fff;}
+.endpoint.finish{background:var(--finish-color);color:#fff;}
+.placeholder{height:72px;margin:18px 0;border-radius:10px;border:2px dashed rgba(0,0,0,0.06);background: linear-gradient(90deg, rgba(0,136,204,0.03), rgba(0,136,204,0.01));}
+.add-btn{position:fixed;right:20px;bottom:20px;width:60px;height:60px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:34px;cursor:pointer;box-shadow:0 8px 26px rgba(0,0,0,0.18);}
+.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(8,8,8,0.36);z-index:9999;-webkit-backdrop-filter: blur(4px);backdrop-filter: blur(4px);}
+.modal .sheet{width:320px;background:var(--card);padding:18px;border-radius:12px;box-shadow:0 12px 36px rgba(2,6,23,0.18);}
+.modal input{width:100%;padding:10px 12px;font-size:14px;border-radius:8px;border:1px solid #e6e6e6;margin-bottom:12px;}
+.modal .row{display:flex;gap:8px;justify-content:flex-end;margin-top:6px;}
+.btn{padding:8px 12px;border-radius:8px;border:none;cursor:pointer;font-weight:600;}
+.btn.secondary{background:#eef2f7;color:#222;}
+.btn.primary{background:var(--accent);color:#fff;}
+.icon{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.icon.del{background:#feecec;color:#b82b2b;}
+.icon.edit{background:#fff7e6;color:#b86a00;}
+@media(max-width:420px){.pipeline{width:320px;padding-left:72px;}}
+</style>
+</head>
+<body>
+<header><h1 id="projectTitle">Мой проект</h1></header>
+<main class="pipeline-area">
+  <section class="pipeline" id="pipeline"></section>
+</main>
+<button class="add-btn" id="openAdd">+</button>
+<div class="modal" id="modal">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <h3 style="margin:0 0 12px 0">Добавить этап / Изменить проект</h3>
+    <input id="newTitle" placeholder="Название этапа или проекта" />
+    <div class="row">
+      <button class="btn secondary" id="cancelAdd">Отмена</button>
+      <button class="btn primary" id="confirmAdd">Применить</button>
+    </div>
+    <input type="checkbox" id="isProject" style="margin-top:8px;"> <label for="isProject">Изменить название проекта</label>
+  </div>
+</div>
+<script>
+const STORAGE_KEY='vertical_pipeline_nodes_v2';
+let nodes=JSON.parse(localStorage.getItem(STORAGE_KEY))||[
+  {title:'Гейм-дизайн',status:'done'},
+  {title:'Версия 0.1',status:'done'},
+  {title:'Анимации',status:'current'},
+  {title:'Превью',status:'not'}
+];
+function persist(){localStorage.setItem(STORAGE_KEY,JSON.stringify(nodes));}
+const pipelineEl=document.getElementById('pipeline');
+function buildBase(){pipelineEl.innerHTML='';
+const line=document.createElement('div');line.className='line';pipelineEl.appendChild(line);
+const lineProg=document.createElement('div');lineProg.className='line-progress';pipelineEl.appendChild(lineProg);
+const start=document.createElement('div');start.className='node endpoint start';start.textContent='Старт';pipelineEl.appendChild(start);}
+function render(){buildBase();nodes.forEach((n,i)=>{
+const card=document.createElement('div');card.className='node';card.draggable=true;card.dataset.index=i;
+if(n.status==='done')card.classList.add('completed');
+if(n.status==='current')card.classList.add('current');
+const title=document.createElement('div');title.className='title';title.textContent=n.title;
+const controls=document.createElement('div');controls.className='controls';
+const sel=document.createElement('select');sel.className='status-select';sel.innerHTML=`<option value="not">Не начато</option><option value="current">В процессе</option><option value="done">Готово</option>`;sel.value=n.status;sel.addEventListener('change',e=>{nodes[i].status=e.target.value;if(e.target.value==='current'){nodes=nodes.map((m,idx)=>idx===i?{...m,status:'current'}:(m.status==='current'?{...m,status:'not'}:m));}persist();render();});
+const del=document.createElement('div');del.className='icon del';del.textContent='✕';del.addEventListener('click',()=>{nodes.splice(i,1);persist();render();});
+const edit=document.createElement('div');edit.className='icon edit';edit.textContent='✎';edit.addEventListener('click',()=>{const nt=prompt('Новое название этапа',nodes[i].title);if(nt!==null){nodes[i].title=nt.trim()||nodes[i].title;persist();render();}});
+controls.appendChild(sel);controls.appendChild(edit);controls.appendChild(del);
+card.appendChild(title);card.appendChild(controls);
+card.addEventListener('dragstart',onDragStart);card.addEventListener('dragend',onDragEnd);
+card.addEventListener('dragover',onDragOverNode);card.addEventListener('dragleave',onDragLeaveNode);card.addEventListener('drop',onDropOnNode);
+pipelineEl.appendChild(card);});
+const finish=document.createElement('div');finish.className='node endpoint finish';finish.textContent='Финиш';pipelineEl.appendChild(finish);
+updateLineProgress();}
+function updateLineProgress(){const startNode=pipelineEl.querySelector('.node.endpoint');const nodesAll=pipelineEl.querySelectorAll('.node');if(!nodesAll.length)return;const first=nodesAll[0];const last=nodesAll[nodesAll.length-1];const lineBg=document.querySelector('.line');const lineProg=document.querySelector('.line-progress');const top=first.offsetTop+first.offsetHeight/2-pipelineEl.offsetTop;const bottom=last.offsetTop+last.offsetHeight/2-pipelineEl.offsetTop;lineBg.style.top=top+'px';lineBg.style.height=(bottom-top)+'px';let lastDoneIndex=-1;for(let i=0;i<nodes.length;i++){if(nodes[i].status==='done')lastDoneIndex=i;}if(lastDoneIndex<0){lineProg.style.top=top+'px';lineProg.style.height='0px';}else{const domNodes=pipelineEl.querySelectorAll('.node');const targetDomIndex=1+lastDoneIndex;const target=domNodes[targetDomIndex];const center=target.offsetTop+target.offsetHeight/2-pipelineEl.offsetTop;lineProg.style.top=top+'px';lineProg.style.height=(center-top)+'px';}}
+let draggedIdx=null;let placeholder=null;
+function createPlaceholder(){const ph=document.createElement('div');ph.className='placeholder';return ph;}
+function onDragStart(e){draggedIdx=+e.currentTarget.dataset.index;e.currentTarget.classList.add('dragging');placeholder=createPlaceholder();try{e.dataTransfer.setData('text/plain','drag');}catch(e){}}
+function onDragEnd(e){e.currentTarget.classList.remove('dragging');cleanupPlaceholder();draggedIdx=null;persist();render();}
+function onDragOverNode(e){e.preventDefault();const target=e.currentTarget;if(target.classList.contains('placeholder'))return;const rect=target.getBoundingClientRect();const insertBefore= e.clientY - rect.top < rect.height/2;cleanupPlaceholder(false);if(insertBefore){target.parentNode.insertBefore(placeholder,target);}else{target.parentNode.insertBefore(placeholder,target.nextSibling);}}
+function onDragLeaveNode(e){const to=e.relatedTarget;if(!to||!pipelineEl.contains(to)){cleanupPlaceholder();}}
+function onDropOnNode(e){e.preventDefault();insertDraggedAtPlaceholder();}
+pipelineEl.addEventListener('dragover',function(e){e.preventDefault();const target=e.target;if(target===pipelineEl||target.classList.contains('line')||target.classList.contains('line-progress')){cleanupPlaceholder(false);const finish=pipelineEl.querySelectorAll('.node')[pipelineEl.querySelectorAll('.node').length-1];pipelineEl.insertBefore(placeholder,finish);}});
+pipelineEl.addEventListener('drop',function(e){e.preventDefault();if(!placeholder)return;insertDraggedAtPlaceholder();});
+function cleanupPlaceholder(removeNode=true){if(placeholder&&placeholder.parentNode){if(removeNode)placeholder.parentNode.removeChild(placeholder);}}
+function insertDraggedAtPlaceholder(){if(placeholder&&placeholder.parentNode){const domNodes=Array.from(pipelineEl.querySelectorAll('.node'));let beforeCount=0;for(let ch of pipelineEl.childNodes){if(ch===placeholder)break;if(ch.classList&&ch.classList.contains('node'))beforeCount++;}let newIndex=beforeCount-1;if(newIndex<0)newIndex=0;if(newIndex>nodes.length)newIndex=nodes.length;const item=nodes.splice(draggedIdx,1)[0];nodes.splice(newIndex,0,item);cleanupPlaceholder();draggedIdx=null;persist();render();}}
+const modal=document.getElementById('modal');
+const openAdd=document.getElementById('openAdd');
+const cancelAdd=document.getElementById('cancelAdd');
+const confirmAdd=document.getElementById('confirmAdd');
+const newTitle=document.getElementById('newTitle');
+const isProject=document.createElement('input');
+openAdd.addEventListener('click',()=>{newTitle.value='';modal.style.display='flex';setTimeout(()=>newTitle.focus(),50);});
+cancelAdd.addEventListener('click',()=>modal.style.display='none');
+confirmAdd.addEventListener('click',()=>{
+  if(document.getElementById('isProject')?.checked){
+    const v=newTitle.value.trim();if(v){document.getElementById('projectTitle').textContent=v;modal.style.display='none';}
+  } else {
+    const v=newTitle.value.trim();if(!v)return newTitle.focus();nodes.push({title:v,status:'not'});persist();modal.style.display='none';render();}
+});
+modal.addEventListener('click',e=>{if(e.target===modal)modal.style.display='none';});
+render();
+window.addEventListener('resize',()=>{setTimeout(updateLineProgress,100);});
+</script>
+</body>
+</html>
